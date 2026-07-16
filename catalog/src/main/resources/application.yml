@@ -19,3 +19,8 @@ management:
     web:
       exposure:
         include: health
+
+jwt:
+  # HMAC-SHA256 secret used to validate JWTs until STAM-identity issues real ones.
+  # Override via env in every non-dev environment.
+  hmac-secret: ${JWT_HMAC_SECRET:dev-only-change-me-dev-only-change-me-32b}
