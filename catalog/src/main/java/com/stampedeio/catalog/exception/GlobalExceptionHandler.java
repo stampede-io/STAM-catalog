@@ -34,6 +34,14 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return pd;
     }
 
+    @ExceptionHandler(ShowInPastException.class)
+    ProblemDetail handleShowInPast(ShowInPastException ex, ServletWebRequest request) {
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+        pd.setTitle("Bad Request");
+        pd.setInstance(URI.create(request.getRequest().getRequestURI()));
+        return pd;
+    }
+
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
             MethodArgumentNotValidException ex,
