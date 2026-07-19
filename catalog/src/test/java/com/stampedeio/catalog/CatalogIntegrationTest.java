@@ -64,7 +64,8 @@ import com.stampedeio.catalog.domain.SeatRepository;
  * <code>~/.testcontainers.properties</code>), ~30 seconds cold. Well within
  * the 90 s ceiling required by STAM-18 AC3.
  */
-@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT,
+        properties = "catalog.projection.enabled=false")
 @AutoConfigureTestRestTemplate
 class CatalogIntegrationTest {
 
