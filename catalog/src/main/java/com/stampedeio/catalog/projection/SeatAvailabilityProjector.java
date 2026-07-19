@@ -9,7 +9,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,26 +40,23 @@ public class SeatAvailabilityProjector {
             autoStartup = "${catalog.projection.enabled:true}"
     )
     @Transactional
-    public void onReservationEvent(ConsumerRecord<String, Map<String, Object>> record,
-                                   Acknowledgment ack) {
+    public void onReservationEvent(ConsumerRecord<String, Map<String, Object>> record) {
         Map<String, Object> envelope = record.value();
         if (envelope == null) {
-            ack.acknowledge();
-            return;
+            throw new NonRetryableProjectionException("Null message value");
         }
 
         String eventType = (String) envelope.get("eventType");
         String eventIdStr = (String) envelope.get("eventId");
         if (eventIdStr == null || eventType == null) {
-            ack.acknowledge();
-            return;
+            throw new NonRetryableProjectionException(
+                    "Missing required fields: eventId=" + eventIdStr + ", eventType=" + eventType);
         }
 
         UUID eventId = UUID.fromString(eventIdStr);
 
         if (!tryMarkProcessed(eventId)) {
             log.debug("Duplicate event {}, skipping", eventId);
-            ack.acknowledge();
             return;
         }
 
@@ -70,8 +66,7 @@ public class SeatAvailabilityProjector {
                 : (Map<String, Object>) envelope.get("payload");
 
         if (payload == null) {
-            ack.acknowledge();
-            return;
+            throw new NonRetryableProjectionException("Null or unparseable payload for event " + eventId);
         }
 
         switch (eventType) {
@@ -81,7 +76,6 @@ public class SeatAvailabilityProjector {
         }
 
         saveOffset(record);
-        ack.acknowledge();
         log.debug("Processed {} event {}", eventType, eventId);
     }
 
