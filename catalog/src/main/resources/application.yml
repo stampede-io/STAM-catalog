@@ -12,6 +12,10 @@ spring:
   mvc:
     problemdetails:
       enabled: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
 
 server:
   port: ${SERVER_PORT:8081}
@@ -26,3 +30,12 @@ jwt:
   # HMAC-SHA256 secret used to validate JWTs until STAM-identity issues real ones.
   # Override via env in every non-dev environment.
   hmac-secret: ${JWT_HMAC_SECRET:dev-only-change-me-dev-only-change-me-32b}
+
+catalog:
+  cache:
+    # Safety-net TTL (STAM-29 AC5): auto-refresh even if an invalidation event is missed.
+    availability-ttl-seconds: ${CACHE_AVAILABILITY_TTL_SECONDS:30}
+    # Single-flight lock (STAM-29 AC3): held by whichever request wins the cache-miss race.
+    lock-ttl-seconds: ${CACHE_LOCK_TTL_SECONDS:5}
+    lock-wait-timeout-ms: ${CACHE_LOCK_WAIT_TIMEOUT_MS:3000}
+    lock-poll-interval-ms: ${CACHE_LOCK_POLL_INTERVAL_MS:20}
