@@ -9,9 +9,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.stampedeio.catalog.api.dto.SeatResponse;
-import com.stampedeio.catalog.domain.SeatRepository;
-import com.stampedeio.catalog.domain.ShowRepository;
-import com.stampedeio.catalog.exception.ResourceNotFoundException;
+import com.stampedeio.catalog.cache.SeatAvailabilityCacheService;
 
 import io.swagger.v3.oas.annotations.tags.Tag;
 
@@ -20,21 +18,14 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 @Tag(name = "Seats")
 public class SeatController {
 
-    private final SeatRepository seats;
-    private final ShowRepository shows;
+    private final SeatAvailabilityCacheService availability;
 
-    public SeatController(SeatRepository seats, ShowRepository shows) {
-        this.seats = seats;
-        this.shows = shows;
+    public SeatController(SeatAvailabilityCacheService availability) {
+        this.availability = availability;
     }
 
     @GetMapping
     public List<SeatResponse> listSeats(@PathVariable UUID showId) {
-        if (!shows.existsById(showId)) {
-            throw new ResourceNotFoundException("Show", showId);
-        }
-        return seats.findByShowIdOrderBySectionAscRowLabelAscSeatNumberAsc(showId).stream()
-                .map(SeatResponse::from)
-                .toList();
+        return availability.getSeats(showId);
     }
 }
