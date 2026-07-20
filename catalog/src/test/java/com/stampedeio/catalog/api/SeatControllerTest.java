@@ -18,10 +18,10 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.stampedeio.catalog.domain.Seat;
-import com.stampedeio.catalog.domain.SeatRepository;
-import com.stampedeio.catalog.domain.ShowRepository;
+import com.stampedeio.catalog.api.dto.SeatResponse;
+import com.stampedeio.catalog.cache.SeatAvailabilityCacheService;
 import com.stampedeio.catalog.exception.GlobalExceptionHandler;
+import com.stampedeio.catalog.exception.ResourceNotFoundException;
 
 @WebMvcTest(SeatController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -29,15 +29,13 @@ import com.stampedeio.catalog.exception.GlobalExceptionHandler;
 class SeatControllerTest {
 
     @Autowired MockMvc mvc;
-    @MockitoBean SeatRepository seats;
-    @MockitoBean ShowRepository shows;
+    @MockitoBean SeatAvailabilityCacheService availability;
 
     @Test
     void listSeats_returnsSeatsForExistingShow() throws Exception {
         UUID showId = UUID.randomUUID();
-        given(shows.existsById(showId)).willReturn(true);
-        Seat seat = new Seat(showId, "GA", "A", 1, 1000L);
-        given(seats.findByShowIdOrderBySectionAscRowLabelAscSeatNumberAsc(showId)).willReturn(List.of(seat));
+        SeatResponse seat = new SeatResponse(UUID.randomUUID(), showId, "GA", "A", 1, 1000L, "AVAILABLE");
+        given(availability.getSeats(showId)).willReturn(List.of(seat));
 
         mvc.perform(get("/api/v1/shows/{id}/seats", showId))
                 .andExpect(status().isOk())
@@ -49,7 +47,7 @@ class SeatControllerTest {
     @Test
     void listSeats_missingShow_returns404() throws Exception {
         UUID showId = UUID.randomUUID();
-        given(shows.existsById(showId)).willReturn(false);
+        given(availability.getSeats(showId)).willThrow(new ResourceNotFoundException("Show", showId));
 
         mvc.perform(get("/api/v1/shows/{id}/seats", showId))
                 .andExpect(status().isNotFound())

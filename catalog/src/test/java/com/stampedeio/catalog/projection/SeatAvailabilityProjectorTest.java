@@ -2,6 +2,8 @@ package com.stampedeio.catalog.projection;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -23,12 +25,15 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.serializer.JsonSerializer;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.KafkaContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
+import com.stampedeio.catalog.cache.SeatAvailabilityCacheService;
 import com.stampedeio.catalog.domain.Seat;
 import com.stampedeio.catalog.domain.SeatRepository;
 import com.stampedeio.catalog.domain.Show;
@@ -38,7 +43,10 @@ import com.stampedeio.catalog.domain.EventRepository;
 import com.stampedeio.catalog.domain.Venue;
 import com.stampedeio.catalog.domain.VenueRepository;
 
-@SpringBootTest(properties = "catalog.projection.enabled=true")
+@SpringBootTest(properties = {
+        "catalog.projection.enabled=true",
+        "catalog.cache.availability-ttl-seconds=60"
+})
 @Testcontainers
 class SeatAvailabilityProjectorTest {
 
@@ -53,13 +61,23 @@ class SeatAvailabilityProjectorTest {
     static final KafkaContainer KAFKA = new KafkaContainer(
             DockerImageName.parse("confluentinc/cp-kafka:7.6.0"));
 
+    @Container
+    static final GenericContainer<?> REDIS = new GenericContainer<>(
+            DockerImageName.parse("redis:7-alpine"))
+            .withExposedPorts(6379);
+
     @DynamicPropertySource
     static void kafkaProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.kafka.bootstrap-servers", KAFKA::getBootstrapServers);
+        registry.add("spring.data.redis.host", REDIS::getHost);
+        registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
     }
 
-    @Autowired
+    @MockitoSpyBean
     SeatRepository seatRepository;
+
+    @Autowired
+    SeatAvailabilityCacheService cacheService;
 
     @Autowired
     VenueRepository venueRepository;
@@ -265,6 +283,41 @@ class SeatAvailabilityProjectorTest {
             List<ProjectionOffset> offsets = projectionOffsetRepository.findAll();
             assertThat(offsets).isNotEmpty();
             assertThat(offsets.get(0).getCommittedOffset()).isGreaterThanOrEqualTo(0);
+        });
+    }
+
+    // STAM-29 AC2: SeatsHeld/SeatsReleased invalidate the Redis cache for that
+    // show as soon as the projector's DB transaction commits.
+    @Test
+    void seatsHeldEvent_evictsAvailabilityCache() {
+        // Prime the cache: this is the one-and-only expected DB read.
+        cacheService.getSeats(showId);
+        verify(seatRepository, times(1)).findByShowIdOrderBySectionAscRowLabelAscSeatNumberAsc(showId);
+
+        UUID eventId = UUID.randomUUID();
+        UUID reservationId = UUID.randomUUID();
+
+        Map<String, Object> envelope = Map.of(
+                "eventId", eventId.toString(),
+                "eventType", "SeatsHeld",
+                "version", 1,
+                "occurredAt", Instant.now().toString(),
+                "correlationId", UUID.randomUUID().toString(),
+                "aggregateId", reservationId.toString(),
+                "payload", Map.of(
+                        "reservationId", reservationId.toString(),
+                        "showId", showId.toString(),
+                        "seatIds", List.of(seatId1.toString(), seatId2.toString()),
+                        "status", "HELD",
+                        "correlationId", UUID.randomUUID().toString()));
+
+        kafkaTemplate.send(TOPIC, reservationId.toString(), envelope);
+
+        // Once the projector's transaction commits, the next read must miss
+        // the cache and hit Postgres again, observing the updated state.
+        await().atMost(30, TimeUnit.SECONDS).untilAsserted(() -> {
+            cacheService.getSeats(showId);
+            verify(seatRepository, times(2)).findByShowIdOrderBySectionAscRowLabelAscSeatNumberAsc(showId);
         });
     }
 }
