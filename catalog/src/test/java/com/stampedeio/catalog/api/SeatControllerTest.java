@@ -20,6 +20,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.stampedeio.catalog.api.dto.SeatResponse;
 import com.stampedeio.catalog.cache.SeatAvailabilityCacheService;
+import com.stampedeio.catalog.domain.SeatRepository;
 import com.stampedeio.catalog.exception.GlobalExceptionHandler;
 import com.stampedeio.catalog.exception.ResourceNotFoundException;
 
@@ -30,6 +31,7 @@ class SeatControllerTest {
 
     @Autowired MockMvc mvc;
     @MockitoBean SeatAvailabilityCacheService availability;
+    @MockitoBean SeatRepository seats;
 
     @Test
     void listSeats_returnsSeatsForExistingShow() throws Exception {
@@ -50,6 +52,27 @@ class SeatControllerTest {
         given(availability.getSeats(showId)).willThrow(new ResourceNotFoundException("Show", showId));
 
         mvc.perform(get("/api/v1/shows/{id}/seats", showId))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
+    }
+
+    @Test
+    void validateSeats_allBelongToShow_returns204() throws Exception {
+        UUID showId = UUID.randomUUID();
+        UUID seatId = UUID.randomUUID();
+        given(seats.countByShowIdAndIdIn(showId, List.of(seatId))).willReturn(1L);
+
+        mvc.perform(get("/api/v1/shows/{id}/seats/validate", showId).param("ids", seatId.toString()))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void validateSeats_someMissing_returns404() throws Exception {
+        UUID showId = UUID.randomUUID();
+        UUID seatId = UUID.randomUUID();
+        given(seats.countByShowIdAndIdIn(showId, List.of(seatId))).willReturn(0L);
+
+        mvc.perform(get("/api/v1/shows/{id}/seats/validate", showId).param("ids", seatId.toString()))
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
     }
