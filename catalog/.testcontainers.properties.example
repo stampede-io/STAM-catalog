@@ -1,0 +1,5 @@
+# Copy this file to ~/.testcontainers.properties to keep the Postgres
+# container between test runs, saving ~15 seconds per run locally.
+# CI runs unaffected — reuse is a no-op there.
+
+testcontainers.reuse.enable=true
