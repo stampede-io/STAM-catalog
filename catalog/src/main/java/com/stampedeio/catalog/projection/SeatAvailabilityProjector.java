@@ -11,7 +11,10 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import com.stampedeio.catalog.cache.SeatAvailabilityCacheService;
 import com.stampedeio.catalog.domain.Seat;
 import com.stampedeio.catalog.domain.SeatRepository;
 
@@ -24,13 +27,16 @@ public class SeatAvailabilityProjector {
     private final SeatRepository seatRepository;
     private final ProcessedEventRepository processedEventRepository;
     private final ProjectionOffsetRepository projectionOffsetRepository;
+    private final SeatAvailabilityCacheService cacheService;
 
     public SeatAvailabilityProjector(SeatRepository seatRepository,
                                      ProcessedEventRepository processedEventRepository,
-                                     ProjectionOffsetRepository projectionOffsetRepository) {
+                                     ProjectionOffsetRepository projectionOffsetRepository,
+                                     SeatAvailabilityCacheService cacheService) {
         this.seatRepository = seatRepository;
         this.processedEventRepository = processedEventRepository;
         this.projectionOffsetRepository = projectionOffsetRepository;
+        this.cacheService = cacheService;
     }
 
     @KafkaListener(
@@ -107,6 +113,26 @@ public class SeatAvailabilityProjector {
             }
         }
         seatRepository.saveAll(seats);
+
+        invalidateAvailabilityCache(showId);
+    }
+
+    /**
+     * Evicts the Redis availability cache only once the surrounding
+     * transaction actually commits (STAM-29 AC2) — a rollback must not
+     * discard a still-valid cache entry.
+     */
+    private void invalidateAvailabilityCache(UUID showId) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    cacheService.evict(showId);
+                }
+            });
+        } else {
+            cacheService.evict(showId);
+        }
     }
 
     private void saveOffset(ConsumerRecord<String, ?> record) {
