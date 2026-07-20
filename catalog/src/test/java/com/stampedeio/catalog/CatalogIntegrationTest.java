@@ -26,6 +26,9 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
@@ -67,15 +70,23 @@ import com.stampedeio.catalog.domain.SeatRepository;
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT,
         properties = "catalog.projection.enabled=false")
 @AutoConfigureTestRestTemplate
+@org.testcontainers.junit.jupiter.Testcontainers
 class CatalogIntegrationTest {
 
+    @org.testcontainers.junit.jupiter.Container
     @ServiceConnection
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(
-            DockerImageName.parse("postgres:16-alpine"))
-            .withReuse(true);
+            DockerImageName.parse("postgres:16-alpine"));
 
-    static {
-        POSTGRES.start();
+    @org.testcontainers.junit.jupiter.Container
+    static final GenericContainer<?> REDIS = new GenericContainer<>(
+            DockerImageName.parse("redis:7-alpine"))
+            .withExposedPorts(6379);
+
+    @DynamicPropertySource
+    static void redisProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.data.redis.host", REDIS::getHost);
+        registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
     }
 
     @Autowired
