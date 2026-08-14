@@ -24,6 +24,9 @@ public class Event {
     @Column(name = "venue_id", nullable = false)
     private UUID venueId;
 
+    @Column(name = "organizer_id")
+    private UUID organizerId;
+
     @Column(nullable = false)
     private String name;
 
@@ -43,10 +46,15 @@ public class Event {
     protected Event() {}
 
     public Event(UUID venueId, String name, String description) {
+        this(venueId, name, description, null);
+    }
+
+    public Event(UUID venueId, String name, String description, UUID organizerId) {
         this.id = UUID.randomUUID();
         this.venueId = venueId;
         this.name = name;
         this.description = description;
+        this.organizerId = organizerId;
         this.status = Status.DRAFT;
     }
 
@@ -64,6 +72,7 @@ public class Event {
 
     public UUID getId() { return id; }
     public UUID getVenueId() { return venueId; }
+    public UUID getOrganizerId() { return organizerId; }
     public String getName() { return name; }
     public String getDescription() { return description; }
     public Status getStatus() { return status; }
