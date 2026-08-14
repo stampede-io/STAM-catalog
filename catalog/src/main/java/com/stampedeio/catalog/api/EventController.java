@@ -12,6 +12,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -84,6 +85,15 @@ public class EventController {
         event.setName(req.name());
         event.setDescription(req.description());
         return EventResponse.from(events.save(event));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Void> delete(@PathVariable UUID id) {
+        Event event = events.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Event", id));
+        events.delete(event);
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/{id}")
