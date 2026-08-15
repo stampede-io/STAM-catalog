@@ -158,6 +158,7 @@ class CatalogIntegrationTest {
                 new JWTClaimsSet.Builder()
                         .subject("integration-test-user")
                         .claim("roles", List.of("ORGANIZER"))
+                        .claim("user_id", UUID.randomUUID().toString())
                         .issueTime(Date.from(Instant.now()))
                         .expirationTime(Date.from(Instant.now().plus(5, ChronoUnit.MINUTES)))
                         .build());

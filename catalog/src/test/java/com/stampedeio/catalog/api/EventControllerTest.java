@@ -2,6 +2,7 @@ package com.stampedeio.catalog.api;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -14,21 +15,21 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.stampedeio.catalog.config.SecurityConfig;
 import com.stampedeio.catalog.domain.Event;
 import com.stampedeio.catalog.domain.EventRepository;
 import com.stampedeio.catalog.domain.VenueRepository;
 import com.stampedeio.catalog.exception.GlobalExceptionHandler;
 
 @WebMvcTest(EventController.class)
-@AutoConfigureMockMvc(addFilters = false)
-@Import(GlobalExceptionHandler.class)
+@Import({SecurityConfig.class, GlobalExceptionHandler.class})
 class EventControllerTest {
 
     @Autowired MockMvc mvc;
@@ -43,6 +44,8 @@ class EventControllerTest {
         given(events.save(any(Event.class))).willAnswer(inv -> inv.getArgument(0));
 
         mvc.perform(post("/api/v1/events")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ORGANIZER"))
+                                .jwt(j -> j.claim("user_id", UUID.randomUUID().toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"venueId":"%s","name":"Concert","description":"desc"}
@@ -55,6 +58,8 @@ class EventControllerTest {
     @Test
     void create_invalidPayload_returns400() throws Exception {
         mvc.perform(post("/api/v1/events")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ORGANIZER"))
+                                .jwt(j -> j.claim("user_id", UUID.randomUUID().toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"\"}"))
                 .andExpect(status().isBadRequest())
@@ -68,6 +73,8 @@ class EventControllerTest {
         given(events.existsByVenueIdAndName(venueId, "Dup")).willReturn(true);
 
         mvc.perform(post("/api/v1/events")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ORGANIZER"))
+                                .jwt(j -> j.claim("user_id", UUID.randomUUID().toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"venueId":"%s","name":"Dup"}
@@ -82,6 +89,8 @@ class EventControllerTest {
         given(venues.existsById(venueId)).willReturn(false);
 
         mvc.perform(post("/api/v1/events")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ORGANIZER"))
+                                .jwt(j -> j.claim("user_id", UUID.randomUUID().toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"venueId":"%s","name":"Concert"}
