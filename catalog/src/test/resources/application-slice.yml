@@ -1,3 +1,7 @@
+eureka:
+  client:
+    enabled: false
+
 spring:
   datasource:
     url: jdbc:h2:mem:catalog;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
