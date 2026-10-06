@@ -39,6 +39,8 @@
 		<netty.version>4.2.17.Final</netty.version>
 		<!-- Tomcat CVE-2026-65182/-65905/-68525 CRITICAL. Remove once the Boot BOM is at or above this. -->
 		<tomcat.version>11.0.25</tomcat.version>
+		<!-- Spring Framework CVE-2026-47884 CRITICAL. Remove once the Boot BOM is at or above this. -->
+		<spring-framework.version>7.0.9</spring-framework.version>
 	</properties>
 	<dependencyManagement>
 		<dependencies>
