@@ -29,9 +29,12 @@ spec:
           env:
             # Image default -XX:MaxMetaspaceSize=128m OOMs under real request
             # traffic in this cluster (observed loading Kafka/actuator proxy
-            # classes). Bumped the same way booking's was.
+            # classes). Metaspace bumped the same way booking's was; heap
+            # trimmed from the image default 256m to leave more headroom
+            # above heap+metaspace within the fixed 640Mi container limit
+            # (thread stacks, JIT code cache, Kafka/Netty direct buffers).
             - name: JAVA_TOOL_OPTIONS
-              value: "-Xmx256m -XX:MaxMetaspaceSize=224m"
+              value: "-Xmx192m -XX:MaxMetaspaceSize=224m"
           resources:
             requests:
               cpu: 100m
