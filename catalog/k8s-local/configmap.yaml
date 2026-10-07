@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: catalog-config
+  namespace: stampede
+data:
+  SPRING_PROFILES_ACTIVE: "kind-local"
+  SERVER_PORT: "8080"
+  DB_HOST: "catalog-db"
+  DB_PORT: "5432"
+  DB_NAME: "catalog"
+  KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
