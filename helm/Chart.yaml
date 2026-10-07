@@ -1,0 +1,6 @@
+apiVersion: v2
+name: catalog
+description: STAMPEDE catalog service — CQRS read-side, venue/event/show/seat CRUD, availability projection
+type: application
+version: 0.0.1-SNAPSHOT
+appVersion: "0.0.1-SNAPSHOT"
