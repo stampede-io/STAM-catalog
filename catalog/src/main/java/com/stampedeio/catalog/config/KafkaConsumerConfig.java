@@ -133,6 +133,9 @@ public class KafkaConsumerConfig {
         factory.setConsumerFactory(consumerFactory);
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.RECORD);
         factory.setCommonErrorHandler(kafkaErrorHandler);
+        // STAM-406: populates MDC correlationId/service from the record's
+        // Kafka headers before the listener method runs.
+        factory.setRecordInterceptor(new KafkaCorrelationIdInterceptor());
         return factory;
     }
 }
