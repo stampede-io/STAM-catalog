@@ -1,11 +1,8 @@
 package com.stampedeio.catalog.config;
 
-import java.nio.charset.StandardCharsets;
 import java.util.Collection;
 import java.util.List;
 import java.util.stream.Stream;
-
-import javax.crypto.spec.SecretKeySpec;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -55,10 +52,17 @@ public class SecurityConfig {
         return http.build();
     }
 
+    // STAM-324: was validating via a hardcoded HMAC shared secret ("until
+    // STAM-identity issues real ones" -- it since has) against identity's
+    // actual RS256/JWKS-issued tokens. Algorithmically incompatible no
+    // matter what the secret was set to -- every real token was rejected
+    // with "Another algorithm expected". Found by actually running the
+    // full register->login->hold flow against this cluster, not by
+    // reading the code. Matches booking's identical JWKS decoder.
     @Bean
-    JwtDecoder jwtDecoder(@Value("${jwt.hmac-secret}") String secret) {
-        SecretKeySpec key = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
-        return NimbusJwtDecoder.withSecretKey(key).build();
+    JwtDecoder jwtDecoder(@Value("${spring.security.oauth2.resourceserver.jwt.jwk-set-uri:"
+            + "http://localhost:8084/oauth2/jwks}") String jwkSetUri) {
+        return NimbusJwtDecoder.withJwkSetUri(jwkSetUri).build();
     }
 
     private JwtAuthenticationConverter jwtAuthConverter() {

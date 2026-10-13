@@ -16,6 +16,11 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${JWK_SET_URI:http://localhost:8084/oauth2/jwks}
 
 server:
   port: ${SERVER_PORT:8081}
@@ -32,11 +37,6 @@ management:
       group:
         startup:
           include: readinessState
-
-jwt:
-  # HMAC-SHA256 secret used to validate JWTs until STAM-identity issues real ones.
-  # Override via env in every non-dev environment.
-  hmac-secret: ${JWT_HMAC_SECRET:dev-only-change-me-dev-only-change-me-32b}
 
 catalog:
   cache:

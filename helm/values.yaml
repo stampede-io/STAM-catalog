@@ -43,8 +43,11 @@ config:
   KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
   REDIS_HOST: "redis"
   REDIS_PORT: "6379"
+  # STAM-324: was JWT_HMAC_SECRET (dead -- identity never issues HMAC
+  # tokens, see SecurityConfig). Same JWKS URI as booking's.
+  JWK_SET_URI: "http://identity:8080/oauth2/jwks"
 
-# Name of a pre-existing Secret (DB_USERNAME, DB_PASSWORD, JWT_HMAC_SECRET)
-# mounted via envFrom when set. Not created by this chart — Sealed Secrets
-# lands in STMP-45; until then, create it out-of-band per environment.
+# Name of a pre-existing Secret (DB_USERNAME, DB_PASSWORD) mounted via
+# envFrom when set. Not created by this chart — Sealed Secrets lands in
+# STMP-45; until then, create it out-of-band per environment.
 secretName: ""
