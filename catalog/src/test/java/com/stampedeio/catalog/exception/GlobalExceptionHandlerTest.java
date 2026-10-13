@@ -10,6 +10,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.security.oauth2.server.resource.autoconfigure.OAuth2ResourceServerAutoConfiguration;
+import org.springframework.boot.security.oauth2.server.resource.autoconfigure.web.OAuth2ResourceServerWebSecurityAutoConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -24,7 +26,10 @@ import org.springframework.web.bind.annotation.RestController;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 
-@WebMvcTest(controllers = GlobalExceptionHandlerTest.StubController.class)
+// STAM-324: see SeatControllerTest's identical annotation for why.
+@WebMvcTest(controllers = GlobalExceptionHandlerTest.StubController.class,
+        excludeAutoConfiguration = {
+                OAuth2ResourceServerAutoConfiguration.class, OAuth2ResourceServerWebSecurityAutoConfiguration.class})
 @AutoConfigureMockMvc(addFilters = false)
 @Import({GlobalExceptionHandlerTest.StubController.class, GlobalExceptionHandler.class})
 class GlobalExceptionHandlerTest {

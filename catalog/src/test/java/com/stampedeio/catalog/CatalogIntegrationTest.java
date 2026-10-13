@@ -2,7 +2,10 @@ package com.stampedeio.catalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.nio.charset.StandardCharsets;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.interfaces.RSAPrivateKey;
+import java.security.interfaces.RSAPublicKey;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Date;
@@ -10,22 +13,24 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import javax.crypto.spec.SecretKeySpec;
-
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
@@ -34,7 +39,7 @@ import org.testcontainers.utility.DockerImageName;
 
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
-import com.nimbusds.jose.crypto.MACSigner;
+import com.nimbusds.jose.crypto.RSASSASigner;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 
@@ -68,7 +73,7 @@ import com.stampedeio.catalog.domain.SeatRepository;
  * the 90 s ceiling required by STAM-18 AC3.
  */
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT,
-        properties = "catalog.projection.enabled=false")
+        properties = {"catalog.projection.enabled=false", "spring.main.allow-bean-definition-overriding=true"})
 @AutoConfigureTestRestTemplate
 @org.testcontainers.junit.jupiter.Testcontainers
 class CatalogIntegrationTest {
@@ -95,8 +100,31 @@ class CatalogIntegrationTest {
     @Autowired
     SeatRepository seats;
 
-    @Value("${jwt.hmac-secret}")
-    String hmacSecret;
+    // STAM-324: the app's real jwtDecoder now validates against identity's
+    // JWKS (a live HTTP call) -- unusable here with no identity instance
+    // running. This swaps in a decoder over a keypair generated once for
+    // this test class, so organizerHeaders() can sign real, decodable
+    // RS256 tokens without a JWKS server. Algorithm and claim shape match
+    // identity's actual tokens; only the key material is test-local.
+    static final KeyPair RSA_KEY_PAIR;
+    static {
+        try {
+            KeyPairGenerator gen = KeyPairGenerator.getInstance("RSA");
+            gen.initialize(2048);
+            RSA_KEY_PAIR = gen.generateKeyPair();
+        } catch (Exception e) {
+            throw new ExceptionInInitializerError(e);
+        }
+    }
+
+    @TestConfiguration
+    static class TestSecurityConfig {
+        @Bean
+        @Primary
+        JwtDecoder jwtDecoder() {
+            return NimbusJwtDecoder.withPublicKey((RSAPublicKey) RSA_KEY_PAIR.getPublic()).build();
+        }
+    }
 
     @Test
     void venueEventShowSeats_roundTripsThroughRestApi() throws Exception {
@@ -154,7 +182,7 @@ class CatalogIntegrationTest {
 
     private HttpHeaders organizerHeaders() throws Exception {
         SignedJWT jwt = new SignedJWT(
-                new JWSHeader(JWSAlgorithm.HS256),
+                new JWSHeader(JWSAlgorithm.RS256),
                 new JWTClaimsSet.Builder()
                         .subject("integration-test-user")
                         .claim("roles", List.of("ORGANIZER"))
@@ -162,7 +190,7 @@ class CatalogIntegrationTest {
                         .issueTime(Date.from(Instant.now()))
                         .expirationTime(Date.from(Instant.now().plus(5, ChronoUnit.MINUTES)))
                         .build());
-        jwt.sign(new MACSigner(new SecretKeySpec(hmacSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256")));
+        jwt.sign(new RSASSASigner((RSAPrivateKey) RSA_KEY_PAIR.getPrivate()));
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
