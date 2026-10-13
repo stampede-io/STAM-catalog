@@ -1,0 +1,119 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit configuration for STAM-catalog
+# CQRS read-side: venue/event/show/seat CRUD + availability projection.
+language: en-US
+early_access: false
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: true
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - "Dev"
+      - "main"
+
+  path_filters:
+    - "!**/target/**"
+    - "!**/.idea/**"
+    - "!**/HELP.md"
+
+  path_instructions:
+    - path: "catalog/src/main/java/com/stampedeio/catalog/projection/**"
+      instructions: >
+        This is a Kafka-driven CQRS projection and it must be replayable from
+        offset zero (SeatAvailabilityReplayTest proves this). Idempotency is
+        enforced via the processed_events table. Flag as a must-fix:
+        (1) any consumer path that acts on a message before recording it in
+        processed_events, or that records it non-transactionally with the side
+        effect; (2) any projection logic that depends on wall-clock time, on
+        current DB state a replay would not reproduce, or on message arrival
+        order across partitions; (3) any change that makes the projector
+        non-rebuildable - if a full replay from zero would produce a different
+        result than incremental processing, that is a defect; (4) exception
+        handling that swallows a poison message instead of routing it to the
+        DLQ (see PoisonMessageDlqTest); (5) NonRetryableProjectionException
+        thrown for a genuinely transient condition, or a transient failure
+        marked non-retryable - both break the retry/DLQ contract.
+
+    - path: "catalog/src/main/java/com/stampedeio/catalog/api/**"
+      instructions: >
+        RBAC and BOLA protection live here. The model is: GET on /api/v1/** is
+        public, writes require ROLE_ORGANIZER, DELETE requires ROLE_ADMIN,
+        enforced both in SecurityConfig and via @PreAuthorize. Flag: (1) any
+        new write or delete endpoint without a @PreAuthorize annotation - do
+        not rely on the SecurityConfig matcher alone, they are defence in
+        depth; (2) any user-scoped or organizer-scoped resource fetched by a
+        path parameter without checking the JWT subject against the resource
+        owner - trusting the path parameter is the BOLA vulnerability;
+        (3) JPA entities returned directly from a controller instead of a DTO
+        record; (4) error responses that are not RFC 7807 ProblemDetail via
+        GlobalExceptionHandler.
+
+    - path: "catalog/src/main/java/com/stampedeio/catalog/seed/**"
+      instructions: >
+        TestSeedController and DevSecurityConfig exist only to give Playwright
+        deterministic E2E data. Flag as a must-fix any change that could
+        expose them outside a dev/test profile - a removed or widened @Profile
+        or @ConditionalOnProperty guard, a seed endpoint reachable without the
+        dev profile active, or seed logic that writes to a non-seed table. A
+        live seeding endpoint in production is a data integrity incident.
+
+    - path: "catalog/src/main/java/com/stampedeio/catalog/cache/**"
+      instructions: >
+        Redis is a cache, never the source of truth. Flag any read path where
+        a cache miss produces an error or an empty result instead of falling
+        back to Postgres, and any write path that updates the cache without a
+        corresponding invalidation on the event that changed the underlying
+        data. Cache invalidation must log at INFO with the correlationId.
+
+    - path: "catalog/src/main/resources/db/migration/*.sql"
+      instructions: >
+        Flyway is forward-only. Flag any edit to an already-merged migration -
+        changes go in a new V<n>__ file. Flag non-idempotent DDL that would
+        break a re-run in CI. Note that booking, not catalog, owns the
+        oversell guard; do not suggest adding seat-locking constraints here.
+
+    - path: "catalog/src/test/java/**"
+      instructions: >
+        Testcontainers over mocks at every boundary - real Postgres, real
+        Kafka, real Redis. Flag a Testcontainers dependency swapped for a
+        mock, added @Disabled, widened timeouts masking a race, or loosened
+        assertions. SeatAvailabilityReplayTest and PoisonMessageDlqTest each
+        prove a public claim; weakening them is a must-fix.
+
+    - path: "**/*.{yml,yaml}"
+      instructions: >
+        spring.jpa.hibernate.ddl-auto must remain validate - flag any change
+        to update or create. Flag any hardcoded credential or connection
+        string. A ${VAR:default} reference is only acceptable when `default`
+        is non-sensitive (hostname, port, empty) - a default that is a usable
+        password or full connection string is still a committed secret.
+
+  tools:
+    gitleaks:
+      enabled: true
+    yamllint:
+      enabled: true
+    markdownlint:
+      enabled: true
+    actionlint:
+      enabled: true
+    hadolint:
+      enabled: true
+    semgrep:
+      enabled: true
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  learnings:
+    scope: auto
+  issues:
+    scope: auto

@@ -11,6 +11,8 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.security.oauth2.server.resource.autoconfigure.OAuth2ResourceServerAutoConfiguration;
+import org.springframework.boot.security.oauth2.server.resource.autoconfigure.web.OAuth2ResourceServerWebSecurityAutoConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -24,7 +26,17 @@ import com.stampedeio.catalog.domain.SeatRepository;
 import com.stampedeio.catalog.exception.GlobalExceptionHandler;
 import com.stampedeio.catalog.exception.ResourceNotFoundException;
 
-@WebMvcTest(SeatController.class)
+// STAM-324: SecurityConfig isn't imported into this slice, so the only
+// thing on the classpath that cares about the new jwk-set-uri default
+// property (added for the real app's JWT validation fix) is Boot's own
+// generic OAuth2ResourceServerAutoConfiguration -- which then tries to
+// build a SecurityFilterChain with no HttpSecurity bean available in
+// this minimal context. addFilters=false alone doesn't stop that (the
+// failure is at bean-creation, not request-filtering). Found by
+// actually running the suite after the JWKS fix, not by reading it.
+@WebMvcTest(value = SeatController.class,
+        excludeAutoConfiguration = {
+                OAuth2ResourceServerAutoConfiguration.class, OAuth2ResourceServerWebSecurityAutoConfiguration.class})
 @AutoConfigureMockMvc(addFilters = false)
 @Import(GlobalExceptionHandler.class)
 class SeatControllerTest {

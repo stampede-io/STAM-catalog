@@ -21,8 +21,11 @@ import com.stampedeio.catalog.domain.ShowRepository;
 import com.stampedeio.catalog.domain.Venue;
 import com.stampedeio.catalog.domain.VenueRepository;
 
+// STAM-60: also runs under "demo" so the nightly demo-reset CronJob's
+// pod restart (after truncating catalog_db) reseeds this data the same
+// way a fresh dev boot does — no separate demo seed loader needed.
 @Component
-@Profile("dev")
+@Profile({"dev", "demo"})
 public class DataLoader implements CommandLineRunner {
 
     private static final Logger log = LoggerFactory.getLogger(DataLoader.class);

@@ -15,6 +15,8 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.security.oauth2.server.resource.autoconfigure.OAuth2ResourceServerAutoConfiguration;
+import org.springframework.boot.security.oauth2.server.resource.autoconfigure.web.OAuth2ResourceServerWebSecurityAutoConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -27,7 +29,10 @@ import com.stampedeio.catalog.domain.Venue;
 import com.stampedeio.catalog.domain.VenueRepository;
 import com.stampedeio.catalog.exception.GlobalExceptionHandler;
 
-@WebMvcTest(VenueController.class)
+// STAM-324: see SeatControllerTest's identical annotation for why.
+@WebMvcTest(value = VenueController.class,
+        excludeAutoConfiguration = {
+                OAuth2ResourceServerAutoConfiguration.class, OAuth2ResourceServerWebSecurityAutoConfiguration.class})
 @AutoConfigureMockMvc(addFilters = false)
 @Import(GlobalExceptionHandler.class)
 class VenueControllerTest {
