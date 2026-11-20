@@ -14,6 +14,9 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -25,6 +28,7 @@ import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -82,6 +86,19 @@ class PoisonMessageDlqTest {
         registry.add("spring.kafka.bootstrap-servers", KAFKA::getBootstrapServers);
         registry.add("spring.data.redis.host", REDIS::getHost);
         registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
+    }
+
+    // Mirror the cluster's shape (platform/kafka/kafka-topics.yaml): the
+    // source topic has several partitions, every .dlq topic has one. A DLQ
+    // resolver that keeps the source partition can't publish there.
+    @BeforeAll
+    static void createTopicsLikeTheCluster() throws Exception {
+        try (AdminClient admin = AdminClient.create(Map.of(
+                AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers()))) {
+            admin.createTopics(List.of(
+                    new NewTopic(TOPIC, 3, (short) 1),
+                    new NewTopic(DLQ_TOPIC, 1, (short) 1))).all().get();
+        }
     }
 
     @Autowired SeatRepository seatRepository;
@@ -174,12 +191,13 @@ class PoisonMessageDlqTest {
                 ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers(),
                 ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class,
                 ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class))) {
-            raw.send(new ProducerRecord<>(TOPIC, reservationId.toString(), garbage)).get();
+            // Partition 2 has no counterpart in the 1-partition DLQ.
+            raw.send(new ProducerRecord<>(TOPIC, 2, reservationId.toString(), garbage)).get();
         }
 
-        // Same key, so the valid event sits behind the poison on one partition.
+        // Same partition, so the valid event sits behind the poison.
         UUID validEventId = UUID.randomUUID();
-        kafkaTemplate.send(TOPIC, reservationId.toString(), Map.of(
+        kafkaTemplate.send(TOPIC, 2, reservationId.toString(), Map.of(
                 "eventId", validEventId.toString(),
                 "eventType", "SeatsHeld",
                 "version", 1,
