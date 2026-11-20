@@ -18,8 +18,10 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
@@ -159,6 +161,66 @@ class PoisonMessageDlqTest {
         assertThat(headerValue(dlqRecord, "exception-class")).isNotEmpty();
         assertThat(headerValue(dlqRecord, "exception-message")).isNotEmpty();
         assertThat(headerValue(dlqRecord, "stack-trace")).isNotEmpty();
+    }
+
+    @Test
+    void nonJsonRecord_routedToDlqWithOriginalBytes_partitionKeepsMoving() throws Exception {
+        // STAM-452: bytes that aren't JSON fail in the deserializer, before
+        // the listener. Without ErrorHandlingDeserializer the container
+        // re-polls the same offset forever and nothing behind it is consumed.
+        UUID reservationId = UUID.randomUUID();
+        byte[] garbage = "not-json-at-all".getBytes(StandardCharsets.UTF_8);
+        try (KafkaProducer<String, byte[]> raw = new KafkaProducer<>(Map.of(
+                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers(),
+                ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class,
+                ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class))) {
+            raw.send(new ProducerRecord<>(TOPIC, reservationId.toString(), garbage)).get();
+        }
+
+        // Same key, so the valid event sits behind the poison on one partition.
+        UUID validEventId = UUID.randomUUID();
+        kafkaTemplate.send(TOPIC, reservationId.toString(), Map.of(
+                "eventId", validEventId.toString(),
+                "eventType", "SeatsHeld",
+                "version", 1,
+                "occurredAt", Instant.now().toString(),
+                "correlationId", UUID.randomUUID().toString(),
+                "aggregateId", reservationId.toString(),
+                "payload", Map.of(
+                        "reservationId", reservationId.toString(),
+                        "showId", showId.toString(),
+                        "seatIds", List.of(seatId1.toString()),
+                        "status", "HELD",
+                        "correlationId", UUID.randomUUID().toString())));
+
+        await().atMost(30, TimeUnit.SECONDS).untilAsserted(() ->
+                assertThat(processedEventRepository.existsById(validEventId)).isTrue());
+
+        ConsumerRecord<String, byte[]> dlqRecord = consumeDlqRecord(reservationId.toString());
+        assertThat(dlqRecord.value()).isEqualTo(garbage);
+        assertThat(headerValue(dlqRecord, "exception-class")).contains("DeserializationException");
+    }
+
+    private ConsumerRecord<String, byte[]> consumeDlqRecord(String key) {
+        Map<String, Object> props = Map.of(
+                ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers(),
+                ConsumerConfig.GROUP_ID_CONFIG, "dlq-test-consumer-" + UUID.randomUUID(),
+                ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class,
+                ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
+                        org.apache.kafka.common.serialization.ByteArrayDeserializer.class,
+                ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        try (KafkaConsumer<String, byte[]> consumer = new KafkaConsumer<>(props)) {
+            consumer.subscribe(Collections.singletonList(DLQ_TOPIC));
+            long deadline = System.currentTimeMillis() + 15_000;
+            while (System.currentTimeMillis() < deadline) {
+                for (ConsumerRecord<String, byte[]> r : consumer.poll(Duration.ofMillis(500))) {
+                    if (key.equals(r.key())) {
+                        return r;
+                    }
+                }
+            }
+        }
+        throw new AssertionError("no DLQ record with key " + key);
     }
 
     private List<ConsumerRecord<String, byte[]>> consumeDlqRecords() {
