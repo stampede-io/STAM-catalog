@@ -4,6 +4,7 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -11,6 +12,8 @@ import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.header.internals.RecordHeaders;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.apache.kafka.common.serialization.ByteArraySerializer;
+import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -28,6 +31,9 @@ import org.springframework.kafka.listener.CommonErrorHandler;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.kafka.listener.ListenerExecutionFailedException;
+import org.springframework.kafka.support.serializer.DelegatingByTypeSerializer;
+import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
 import org.springframework.kafka.support.serializer.JsonSerializer;
 import org.springframework.util.backoff.ExponentialBackOff;
@@ -60,7 +66,12 @@ public class KafkaConsumerConfig {
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         props.put(ConsumerConfig.GROUP_ID_CONFIG, "catalog-availability-projector");
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
-        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, JsonDeserializer.class);
+        // STAM-452: a record whose bytes aren't JSON fails inside poll(),
+        // before any listener or error handler sees it, and the container
+        // re-polls that offset forever. The wrapper turns the failure into a
+        // DeserializationException the DefaultErrorHandler can dead-letter.
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
+        props.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS, JsonDeserializer.class);
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
         props.put(JsonDeserializer.TRUSTED_PACKAGES, "*");
@@ -78,10 +89,15 @@ public class KafkaConsumerConfig {
     public ProducerFactory<String, Object> dlqProducerFactory(MeterRegistry meterRegistry) {
         Map<String, Object> props = new HashMap<>();
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
-        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JsonSerializer.class);
         props.put(ProducerConfig.ACKS_CONFIG, "all");
-        DefaultKafkaProducerFactory<String, Object> factory = new DefaultKafkaProducerFactory<>(props);
+        // A record that failed deserialization reaches the recoverer as its
+        // original byte[]; publish those bytes as-is rather than as a
+        // base64 JSON string, so the DLQ holds exactly what arrived.
+        Map<Class<?>, Serializer<?>> byType = new LinkedHashMap<>();
+        byType.put(byte[].class, new ByteArraySerializer());
+        byType.put(Object.class, new JsonSerializer<>());
+        DefaultKafkaProducerFactory<String, Object> factory = new DefaultKafkaProducerFactory<>(
+                props, new StringSerializer(), new DelegatingByTypeSerializer(byType, true));
         factory.addListener(new MicrometerProducerListener<>(meterRegistry));
         return factory;
     }
@@ -97,7 +113,12 @@ public class KafkaConsumerConfig {
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(
                 dlqKafkaTemplate,
                 (record, ex) -> new TopicPartition(record.topic() + ".dlq", record.partition()));
-        recoverer.setHeadersFunction((consumerRecord, ex) -> {
+        recoverer.setHeadersFunction((consumerRecord, thrown) -> {
+            // Spring wraps every failure in ListenerExecutionFailedException;
+            // record the cause underneath, or the DLQ can't tell a
+            // DeserializationException from a projection bug.
+            Exception ex = thrown instanceof ListenerExecutionFailedException
+                    && thrown.getCause() instanceof Exception cause ? cause : thrown;
             RecordHeaders headers = new RecordHeaders();
             headers.add("original-topic",
                     consumerRecord.topic().getBytes(StandardCharsets.UTF_8));
